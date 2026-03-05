@@ -31,6 +31,7 @@ WHITELISTED_SENDERS = {
     "marketing@statnews.com",        # STAT News — mix of science and tech
     # Tech newsletters you trust
     "newsletter@tldr.tech",          # TLDR
+    "dan@tldrnewsletter.com"         # TLDR- all editions
     "hello@deeplearning.ai",         # DeepLearning.AI
     "hi@mail.beehiiv.com",           # common Beehiiv sender
     # Add more as you discover them:
