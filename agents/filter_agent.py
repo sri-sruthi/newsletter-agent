@@ -11,11 +11,36 @@ e.g. "ai" should NOT match "faith", "paid", "trail", "rain"
 import re
 import json
 from groq import Groq
-from config import GROQ_API_KEY
+from config import GROQ_API_KEY, MODEL_GROQ_SMALL_CANDIDATES
 
 client = Groq(api_key=GROQ_API_KEY)
-MODEL = "llama-3.3-70b-versatile"
 
+
+def _clean_json_response(raw: str) -> str:
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    return raw.strip()
+
+
+def _is_retryable_groq_error(err: Exception) -> bool:
+    msg = str(err).lower()
+    return (
+        "rate limit" in msg
+        or "429" in msg
+        or "temporarily unavailable" in msg
+    )
+
+
+def _is_model_error(err: Exception) -> bool:
+    msg = str(err).lower()
+    return (
+        "decommissioned" in msg
+        or "model_not_found" in msg
+        or "invalid_request_error" in msg
+        or "unknown model" in msg
+    )
 
 # ── Stage 1A: Structural junk — always discard ──────────────────────────────
 # These identify emails by STRUCTURE, not topic.
@@ -190,43 +215,47 @@ Email Body (first 600 chars):
 {email['body'][:600]}
 """
 
-    try:
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=150
-        )
+    for idx, model in enumerate(MODEL_GROQ_SMALL_CANDIDATES, start=1):
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=150
+            )
 
-        raw = response.choices[0].message.content.strip()
+            raw = _clean_json_response(response.choices[0].message.content.strip())
+            result = json.loads(raw)
 
-        # Strip markdown fences if model ignores instructions
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        raw = raw.strip()
+            keep = result.get("keep", False)
+            reason = result.get("reason", "Groq decision")
+            potential_skills = result.get("potential_skills", [])
+            return keep, reason, potential_skills
 
-        result = json.loads(raw)
+        except Exception as e:
+            is_last = idx == len(MODEL_GROQ_SMALL_CANDIDATES)
+            tag = f"[{model}]"
 
-        keep           = result.get('keep', False)
-        reason         = result.get('reason', 'Groq decision')
-        potential_skills = result.get('potential_skills', [])
+            if _is_model_error(e) and not is_last:
+                print(f"    ⚠️  Groq filter model unavailable {tag}, trying next model...")
+                continue
 
-        return keep, reason, potential_skills
+            if _is_retryable_groq_error(e) and not is_last:
+                print(f"    ⚠️  Groq filter rate-limited {tag}, trying next model...")
+                continue
 
-    except Exception as e:
-        print(f"    ⚠️  Groq filter error, keeping by default: {e}")
-        return True, "filter error — kept by default", []
+            print(f"    ⚠️  Groq filter error {tag}, keeping by default: {e}")
+            return True, "filter error — kept by default", []
+
+    return True, "filter fallback — kept by default", []
 
 
-def filter_newsletters(emails: list) -> list:
+def filter_newsletters(emails: list) -> tuple:
     """
     Main filter pipeline.
-    Stage 1: structural junk removal + clear tech signal detection
-    Stage 2: Groq intent filter for everything unclear
-
-    Returns only emails worth analyzing.
+    Returns:
+        kept      — list of relevant emails to analyze
+        discarded — list of irrelevant emails to archive in Gmail
     """
     kept      = []
     discarded = []
@@ -262,8 +291,8 @@ def filter_newsletters(emails: list) -> list:
                 kept.append(email)
             else:
                 print(f"  🗑️  DISCARD  | Groq: {groq_reason}")
-                discarded.append(email)
+                discarded.append(email)  # ← now tracked
             print()
 
     print(f"\n📊 Filter result: {len(kept)} kept / {len(discarded)} discarded / {len(emails)} total\n")
-    return kept
+    return kept, discarded  # ← now returns both
