@@ -31,9 +31,14 @@ WHITELISTED_SENDERS = {
     "marketing@statnews.com",        # STAT News — mix of science and tech
     # Tech newsletters you trust
     "newsletter@tldr.tech",          # TLDR
-    "dan@tldrnewsletter.com"         # TLDR- all editions
+    "dan@tldrnewsletter.com",        # TLDR- all editions
     "hello@deeplearning.ai",         # DeepLearning.AI
     "hi@mail.beehiiv.com",           # common Beehiiv sender
+    "hi@news.jayshetty.me",
+    "newsletter@towardsdatascience.com",
+    "newsletter@email.businessinsider.com",
+    "dailydozen@email.forbes.com",
+    "info@dailystoic.com",
     # Add more as you discover them:
     # "sender@domain.com",
 }
@@ -122,13 +127,14 @@ def record_discarded_senders(discarded_emails: list) -> dict:
         address    = extract_email_address(raw_sender)
         name       = extract_sender_name(raw_sender)
 
-        # Skip whitelisted senders — never penalise them
-        if is_whitelisted(address):
-            print(f"  🛡️  Whitelisted — skipping discard tracking: '{name}'")
+        # Skip already unsubscribed — no output needed
+        if address in already:
             continue
 
-        if address in already:
-            continue  # already unsubscribed
+        # Skip whitelisted senders — never penalise them
+        if is_whitelisted(address):
+            print(f"  🛡️  Whitelisted — skipping: '{name}'")
+            continue
 
         if address not in counts:
             counts[address] = {"count": 0, "name": name}

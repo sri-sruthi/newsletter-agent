@@ -6,39 +6,24 @@ from agents.scoring_agent import score_all_newsletters
 from agents.github_agent import extract_github_skills
 from agents.skill_gap_agent import run_skill_gap_analysis
 from execution.gmail_actions import execute_gmail_actions
+from execution.notion_actions import store_to_notion
+from execution.docs_actions import update_google_doc
+from config import GOOGLE_DOC_ID
 
 
 def print_skill_gap_summary(skill_gap_report: dict):
-    """Prints skill gaps and project ideas in the final summary section."""
-    skill_gaps = skill_gap_report.get("skill_gaps", [])
-    project_ideas = skill_gap_report.get("project_ideas", [])
+    gaps = skill_gap_report.get("skill_gaps", [])
+    projects = skill_gap_report.get("project_ideas", [])
 
-    print(f"\n🎯 Skill gaps identified: {len(skill_gaps)}")
-    if skill_gaps:
-        for i, gap in enumerate(skill_gaps, 1):
-            priority = gap.get("priority", "UNKNOWN")
-            skill = gap.get("skill", "Unknown skill")
-            why = gap.get("why_important", "").strip()
-            print(f"  {i}. [{priority}] {skill}")
-            if why:
-                print(f"     - {why}")
+    print(f"\n🎯 Skill gaps: {len(gaps)}")
+    for i, gap in enumerate(gaps, 1):
+        print(f"  {i}. [{gap.get('priority', 'MEDIUM')}] {gap.get('skill', 'Unknown')}")
 
-    print(f"\n💡 Project ideas generated: {len(project_ideas)}")
-    if project_ideas:
-        for i, project in enumerate(project_ideas, 1):
-            title = project.get("title", "Untitled project")
-            eta = project.get("estimated_time", "unknown duration")
-            uses = ", ".join(project.get("skills_used", []))
-            learns = ", ".join(project.get("skills_learned", []))
-            tools = ", ".join(project.get("tools", []))
-
-            print(f"  {i}. {title} ({eta})")
-            if uses:
-                print(f"     Uses: {uses}")
-            if learns:
-                print(f"     Learns: {learns}")
-            if tools:
-                print(f"     Tools: {tools}")
+    print(f"\n💡 Projects:   {len(projects)}")
+    for i, project in enumerate(projects, 1):
+        title = project.get("title", "Untitled")
+        eta = project.get("estimated_time", "?")
+        print(f"  {i}. {title} ({eta})")
 
 
 if __name__ == "__main__":
@@ -53,7 +38,6 @@ if __name__ == "__main__":
     # Filter
     print("🔎 Running Filter Agent...\n")
     relevant_emails, discarded_emails = filter_newsletters(emails)
-
     if not relevant_emails:
         print("📭 No relevant newsletters after filtering.")
         if discarded_emails:
@@ -85,8 +69,19 @@ if __name__ == "__main__":
 
     # Phase 4B — Skill Gap Analysis
     print("\n🎯 Running Skill Gap Agent...\n")
-    all_analyses = high + medium  # use all kept emails for trend analysis
+    all_analyses     = high + medium
     skill_gap_report = run_skill_gap_analysis(all_analyses, github_skills)
+
+    # Phase 5A — Store to Notion
+    notion_updated = True
+    try:
+        store_to_notion(all_analyses, skill_gap_report)
+    except Exception as e:
+        notion_updated = False
+        print(f"\n  ❌ Notion update failed: {e}\n")
+
+    # Phase 5B — Update Google Doc
+    doc_updated = update_google_doc(all_analyses, skill_gap_report, high, medium, GOOGLE_DOC_ID)
 
     # Final Summary
     print("\n" + "="*60)
@@ -102,5 +97,6 @@ if __name__ == "__main__":
         print(f"  🔁 DUPL               | {email['subject'][:50]}")
     for email in discarded_emails:
         print(f"  🗑️  FILTERED           | {email['subject'][:50]}")
-
     print_skill_gap_summary(skill_gap_report)
+    print(f"\n📔 Notion:     {'updated' if notion_updated else 'failed'}")
+    print(f"📄 Google Doc: {'updated' if doc_updated else 'failed'}")
